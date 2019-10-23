@@ -10,6 +10,15 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 import data_loader
+import argparse
+
+# Args:
+parser = argparse.ArgumentParser()
+parser.add_argument('--gpu', default=2, type=int, help='the gpu to use')
+args = parser.parse_args()
+
+# Assing GPU
+torch.cuda.set_device(args.gpu)
 
 # Parameters
 # ==================================================
@@ -55,6 +64,9 @@ print("Loading data...")
 train_user, train_td, train_ld, train_loc, train_dst = data_loader.treat_prepro(train_file, step=1)
 valid_user, valid_td, valid_ld, valid_loc, valid_dst = data_loader.treat_prepro(valid_file, step=2)
 test_user, test_td, test_ld, test_loc, test_dst = data_loader.treat_prepro(test_file, step=3)
+
+print('train user/location', len(train_user), len(train_loc))
+print('validation user/location', len(valid_user))
 
 print("User/Location: {:d}/{:d}".format(user_cnt, loc_cnt))
 print("==================================================================================")
@@ -105,6 +117,7 @@ class STRNNCell(nn.Module):
 
     def validation(self, user, td_upper, td_lower, ld_upper, ld_lower, loc, dst, hx):
         # error exist in distance (ld_upper, ld_lower)
+        # here we are missing the spatial impact on hx (use same everywhere!)
         h_tq = self.forward(td_upper, td_lower, ld_upper, ld_lower, loc, hx)
         p_u = self.permanet_weight(user)
         user_vector = h_tq + torch.t(p_u)
@@ -130,7 +143,7 @@ def print_score(batches, step):
 
     for batch in tqdm.tqdm(batches, desc="validation"):
         batch_user, batch_td, batch_ld, batch_loc, batch_dst = batch
-        if len(batch_loc) < 3:
+        if len(batch_loc) < 3: # skip with less than 3 history
             continue
         iter_cnt += 1
         batch_o, target = run(batch_user, batch_td, batch_ld, batch_loc, batch_dst, step=step)
@@ -151,6 +164,9 @@ def print_score(batches, step):
 
 ###############################################################################################
 def run(user, td, ld, loc, dst, step):
+    # run for one user (and all his window width batches [seqlen])
+    # preserve rnn_output among different patches
+    # "interpolate" here
 
     optimizer.zero_grad()
 
@@ -198,7 +214,7 @@ for i in xrange(num_epochs):
         #for k, inner_batch in inner_batches:
         batch_user, batch_td, batch_ld, batch_loc, batch_dst = train_batch#inner_batch)
         if len(batch_loc) < 3:
-            continue
+            continue # skip entries with less than 3 batches (why?, only 30 checkins are considered)
         total_loss += run(batch_user, batch_td, batch_ld, batch_loc, batch_dst, step=1)
         #if (j+1) % 2000 == 0:
         #    print("batch #{:d}: ".format(j+1)), "batch_loss :", total_loss/j, datetime.datetime.now()
