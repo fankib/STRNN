@@ -76,7 +76,7 @@ def show_earth(locations_xyz):
     # rotate the axes and update
     for angle in np.arange(0, 360, 20):
         ax.view_init(30, angle)
-        plt.savefig('visualization/gowalla_earth_{}.png'.format(angle))
+        #plt.savefig('visualization/gowalla_earth_{}.png'.format(angle))
         #plt.draw()        
         plt.pause(.001)
     
@@ -101,7 +101,7 @@ def show_stats(user, distances, x_lim, bins, xlabel, suffix):
     plt.xlabel(xlabel)
     plt.ylabel('Amount')
     plt.xlim((0, x_lim))
-    plt.savefig('visualization/gowalla_distance_close_{}.png'.format(suffix))
+    #plt.savefig('visualization/gowalla_distance_close_{}.png'.format(suffix))
     plt.show()  
  
 #visualize locations 
