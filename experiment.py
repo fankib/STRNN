@@ -28,7 +28,7 @@ def experiment_60():
 	#exp_hidden_dims('60', 360)
 	#exp_hidden_dims('60', 60)
 	#exp_learning_rate('60', 360, 7)
-	#exp_epochs('60', 360, 7, 0.05)
+	exp_epochs('60', 360, 64, 0.05)
 	#exp_regularization('60', 360, 7, 0.05)
 	#exp_temporal_upper_bound('60', 360)
 	#exp_spatial_upper_bounds('60', 360)
@@ -41,6 +41,7 @@ def exp_window_width(suffix):
 
 def exp_hidden_dims(suffix, window_width):
 	dims = np.arange(1, 20, 2)
+	dims = [16, 32, 64]
 	for dim in dims:
 		args = ArgBuilder().suffix('{}-{}'.format(suffix, window_width)).up_time(window_width).dims(dim)
 		args.evaluate()
@@ -96,6 +97,7 @@ class Evaluator():
 	def train(self, args):
 		self.args.append(args)
 		cmd = 'python train.py {}'.format(args)
+		#cmd = 'python train_neg_sample.py {}'.format(args)
 		print('train on {}'.format(args))
 		cmds = shlex.split(cmd)
 		#self.processes.append(subprocess.Popen(cmds)) # verbose

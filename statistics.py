@@ -78,7 +78,8 @@ def show_earth(locations_xyz):
         ax.view_init(30, angle)
         #plt.savefig('visualization/gowalla_earth_{}.png'.format(angle))
         #plt.draw()        
-        plt.pause(.001)
+        #plt.pause(.001)
+    plt.show()
     
 
 # compute historgram on temporal delays (using training set)
@@ -105,7 +106,8 @@ def show_stats(user, distances, x_lim, bins, xlabel, suffix):
     plt.show()  
  
 #visualize locations 
-show_earth(poi2pos) 
+#show_earth(poi2pos) 
+show_earth([])
 
 # visualize training data:
 show_stats(train_user, train_td, 600, 50000, 'Delay in minutes', 'temporal_{}'.format(args.suffix))
