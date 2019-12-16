@@ -15,7 +15,7 @@ import argparse
 
 # Args:
 parser = argparse.ArgumentParser()
-parser.add_argument('--gpu', default=2, type=int, help='the gpu to use')
+parser.add_argument('--gpu', default=1, type=int, help='the gpu to use')
 parser.add_argument('--cpu', default=False, const=True, nargs='?', type=bool, help='use cpu')
 parser.add_argument('--continue-train', default=False, const=True, nargs='?', type=bool, help='continue with training')
 parser.add_argument('--suffix', default='50', type=str, help='the suffix of the files to load')
@@ -29,11 +29,14 @@ parser.add_argument('--up-time', default = 1440., type=float, help='upper time b
 parser.add_argument('--up-dist', default = 40., type=float, help='upper distance bound in km')
 parser.add_argument('--silent', default=False, const=True, nargs='?', type=bool, help='run in silent mode')
 parser.add_argument('--reg', default=0., type=float, help='regularization')
+parser.add_argument('--rnn-window', default=10, type=int, help='rnn window training')
+parser.add_argument('--tanh', default=False, const=True, nargs='?', type=bool, help='use tanh instead of sigmoid')
+parser.add_argument('--skip-rnn', default=False, const=True, nargs='?', type=bool, help='skip rnn parts (only use window history)')
 args = parser.parse_args()
 
 # Assing GPU
 if not args.cpu:
-	torch.cuda.set_device(args.gpu)
+    torch.cuda.set_device(args.gpu)
 
 # Parameters
 # ==================================================
@@ -55,6 +58,11 @@ lw_time = 0.
 up_dist = args.up_dist # in km 
 lw_dist = 0.
 reg_lambda = args.reg
+
+# ablation parameters
+use_tanh = args.tanh
+skip_rnn = args.skip_rnn
+
 
 # Training Parameters
 batch_size = args.batch_size # we can not compute in batches, but at least the optimizer steps in batches.
@@ -105,11 +113,15 @@ class STRNN(nn.Module):
         self.permanet_weight = nn.Embedding(user_cnt, hidden_size)
         
         # rnn stuff:
-        self.h0shared = nn.Parameter(torch.randn(dim, 1)).type(ftype)
-        self.h_0 = nn.Embedding(user_cnt, hidden_size)
-        self.latest_user_state = Variable(torch.randn(user_cnt, hidden_size), requires_grad=False).type(ftype)
+        self.h0shared = nn.Parameter(torch.randn(dim, 1), requires_grad=False).type(ftype)
+        #self.h_0 = nn.Embedding(user_cnt, hidden_size)
+        #self.latest_user_state = Variable(torch.randn(user_cnt, hidden_size), requires_grad=False).type(ftype)
 
-        self.sigmoid = nn.Sigmoid()
+        if use_tanh:
+            log('use tanh')
+            self.sigmoid = nn.Tanh()
+        else:
+            self.sigmoid = nn.Sigmoid()
 
         self.reset_parameters()
 
@@ -117,7 +129,13 @@ class STRNN(nn.Module):
         stdv = 1.0 / math.sqrt(self.hidden_size)
         for weight in self.parameters():
             weight.data.uniform_(-stdv, stdv)
-        self.h0shared = nn.Parameter(torch.randn(dim, 1)).type(ftype)
+        
+        #self.weight_th_upper.data += torch.eye(self.hidden_size)
+        #self.weight_th_lower.data += torch.eye(self.hidden_size)
+        #self.weight_sh_upper.data += torch.eye(self.hidden_size)
+        #self.weight_sh_lower.data += torch.eye(self.hidden_size)
+        
+        self.h0shared = nn.Parameter(torch.randn(dim, 1), requires_grad=False).type(ftype)
 
     def forward(self, td_upper, td_lower, ld_upper, ld_lower, loc, hx):
         
@@ -135,10 +153,17 @@ class STRNN(nn.Module):
         self.weight_sh_upper.retain_grad()
 
         loc = self.location_weight(loc).view(-1,self.hidden_size,1)
+        # use sum:
         loc_vec = torch.sum(torch.cat([torch.mm(Sld[i], torch.mm(Ttd[i], loc[i])).view(1,self.hidden_size,1) for i in range(loc_len)], dim=0), dim=0)
-        usr_vec = torch.mm(self.weight_ih, hx)
-        hx = loc_vec + usr_vec # hidden_size x 1
-        return self.sigmoid(hx)
+        # use mean
+        #loc_vec = torch.mean(torch.cat([torch.mm(Sld[i], torch.mm(Ttd[i], loc[i])).view(1,self.hidden_size,1) for i in range(loc_len)], dim=0), dim=0)
+       
+        if skip_rnn:
+            return self.sigmoid(loc_vec)
+        else:
+            usr_vec = torch.mm(self.weight_ih, hx)
+            hx = loc_vec + usr_vec # hidden_size x 1
+            return self.sigmoid(hx)
     
     def loss(self, user, q_v, h_tq):
         p_u = self.permanet_weight(user)
@@ -214,8 +239,9 @@ def print_score(batches, step, label = 'validation', update_best=False, slow_val
     with torch.no_grad():
         for batch in tqdm.tqdm(batches, desc=label):
             batch_user, batch_td, batch_ld, batch_loc, batch_dst = batch
-            if len(batch_loc) < 3: # skip with less than 3 history batches
-                continue
+            #if len(batch_loc) < args.rnn_window: # skip with less than 3 history batches
+            #    print('skip validation user', batch_user, 'only has', len(batch_loc))
+            #    continue
             iter_cnt += 1
             batch_o, target = run(batch_user, batch_td, batch_ld, batch_loc, batch_dst, step=step, slow_validation=slow_validation)
 
@@ -276,27 +302,30 @@ def run(user, td, ld, loc, dst, step, slow_validation=False):
     # run for one user (and all his window width batches [seqlen])
     # preserve rnn_output among different patches
     # "interpolate" here
+    
+    #print('user', user, 'len', len(td))
 
     #seqlen = len(td)
     if step > 1:
+        seqstrt = 0
         seqlen = len(td)
     else:
-        seqlen = int(torch.FloatTensor(1).uniform_(3, len(td)).long().item()) # update to random seqlen (should have at least 3 batches)
+        seqlen = int(torch.FloatTensor(1).uniform_(args.rnn_window, len(td)).long().item()) # update to random seqlen (should have at least 3 batches)
+        seqstrt = 0
+        #seqstrt = seqlen-args.rnn_window
     
-    user_idx = user
     user = Variable(torch.from_numpy(np.asarray([user]))).type(ltype)
     
     # Case 2: use shared h_0:c
-    rnn_output = strnn_model.h0shared        
-        
-    for idx in range(seqlen-1):
-        #TODO: create once and reuse!    
-        td_upper = Variable(torch.from_numpy(np.asarray(up_time-td[idx]))).type(ftype)
-        td_lower = Variable(torch.from_numpy(np.asarray(td[idx]-lw_time))).type(ftype)
-        ld_upper = Variable(torch.from_numpy(np.asarray(up_dist-ld[idx]))).type(ftype)
-        ld_lower = Variable(torch.from_numpy(np.asarray(ld[idx]-lw_dist))).type(ftype)
-        location = Variable(torch.from_numpy(np.asarray(loc[idx]))).type(ltype)
-        rnn_output = strnn_model(td_upper, td_lower, ld_upper, ld_lower, location, rnn_output)#, neg_lati, neg_longi, neg_loc, step)
+    rnn_output = strnn_model.h0shared
+    if not skip_rnn:   
+        for idx in range(seqstrt, seqlen-1):    
+            td_upper = Variable(torch.from_numpy(np.asarray(up_time-td[idx]))).type(ftype)
+            td_lower = Variable(torch.from_numpy(np.asarray(td[idx]-lw_time))).type(ftype)
+            ld_upper = Variable(torch.from_numpy(np.asarray(up_dist-ld[idx]))).type(ftype)
+            ld_lower = Variable(torch.from_numpy(np.asarray(ld[idx]-lw_dist))).type(ftype)
+            location = Variable(torch.from_numpy(np.asarray(loc[idx]))).type(ltype)
+            rnn_output = strnn_model(td_upper, td_lower, ld_upper, ld_lower, location, rnn_output)#, neg_lati, neg_longi, neg_loc, step)
 
     # positive sample last round:
     td_upper = Variable(torch.from_numpy(np.asarray(up_time-td[seqlen-1]))).type(ftype)
@@ -342,16 +371,19 @@ for i in range(num_epochs):
         ld = train_ld[idx]
         loc = train_loc[idx]
         dst = train_dst[idx]
-        if len(train_dst) < 3:
-            continue # skip users with to little history
         
         if j % batch_size == 0:
             optimizer.zero_grad()
             Jtot = torch.tensor([[0]]).type(ftype)
         
-        if len(loc) < 3:
+        if len(train_dst) <= args.rnn_window:
+            log('skip train user', user)
+            continue # skip users with to little history
+        
+        if len(loc) <= args.rnn_window:
             #log('skip user', user)
             continue # skip whatever..
+        
         
         J = run(user, td, ld, loc, dst, step=1)
         Jtot += J

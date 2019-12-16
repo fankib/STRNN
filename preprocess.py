@@ -114,6 +114,7 @@ class STRNNModule(nn.Module):
             # recursion on previous windows!
             # so they are written first to the file
             self.return_h_tw(times, coord, locs, w_cap)
+            #self.return_h_tw(times, coord, locs, idx-1) # recusively through each location!
 
         # idx denotes the current time/position at this check in
         td = times[idx] - times[w_cap:idx] # differences in time
