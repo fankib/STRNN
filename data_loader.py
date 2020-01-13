@@ -1,6 +1,7 @@
 import numpy as np
 from datetime import datetime
 import pandas as pd
+import time
 
 def load_poi2pos(poi2pos_file):
     poi2pos = {}

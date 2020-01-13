@@ -21,7 +21,7 @@ def experiment_60():
     ''' here is all the stuff from the 60 - user experiment '''
     
     # run once:
-    #prepare_dataset_60()
+    prepare_dataset_60()
     
     # use GPU:
     #ArgBuilder.gpu = 1
@@ -40,6 +40,7 @@ def experiment_60():
     just_run('60', 360, 0.05)
     just_run_tanh('60', 360, 0.05)
     just_run_no_rnn('60', 360, 0.05)
+    just_run_single_sampling('60', 360, 0.05)
 
 def just_run(suffix, window_width, lr, repetition=10):
     print('~~~ default ~~~')
@@ -60,6 +61,13 @@ def just_run_no_rnn(suffix, window_width, lr, repetition=10):
     for i in range(repetition):
         print('{}/{}:'.format(i+1, repetition))
         args = ArgBuilder().suffix('{}-{}'.format(suffix, window_width)).up_time(window_width).lr(lr).skip_rnn()
+        args.evaluate()
+
+def just_run_single_sampling(suffix, window_width, lr, repetition=10):
+    print('~~~ use single sampling ~~')
+    for i in range(repetition):
+        print('{}/{}:'.format(i+1, repetition))
+        args = ArgBuilder().suffix('{}-{}'.format(suffix, window_width)).up_time(window_width).lr(lr).single_sampling()
         args.evaluate()
 
 def exp_window_width(suffix):
@@ -208,6 +216,10 @@ class ArgBuilder():
     
     def skip_rnn(self):
         self.args.append('--skip-rnn')
+        return self
+    
+    def single_sampling(self):
+        self.args.append('--single-sampling')
         return self
     
     def build(self):

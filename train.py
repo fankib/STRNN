@@ -32,6 +32,7 @@ parser.add_argument('--reg', default=0., type=float, help='regularization')
 parser.add_argument('--rnn-window', default=10, type=int, help='rnn window training')
 parser.add_argument('--tanh', default=False, const=True, nargs='?', type=bool, help='use tanh instead of sigmoid')
 parser.add_argument('--skip-rnn', default=False, const=True, nargs='?', type=bool, help='skip rnn parts (only use window history)')
+parser.add_argument('--single-sampling', default=False, const=True, nargs='?', type=bool, help='uniform random sampling of negative locations')
 args = parser.parse_args()
 
 # Assing GPU
@@ -62,6 +63,7 @@ reg_lambda = args.reg
 # ablation parameters
 use_tanh = args.tanh
 skip_rnn = args.skip_rnn
+use_single_sampling = args.single_sampling
 
 
 # Training Parameters
@@ -172,8 +174,13 @@ class STRNN(nn.Module):
         #positive sample:
         pos_o = torch.mm(q_v, user_vec)
         
-        # negative samples:
-        neg_os = torch.mm(self.location_weight.weight, user_vec)
+        if use_single_sampling:
+            # random negative samples:
+            loci = torch.randint(loc_cnt, (1,1))
+            neg_os = torch.mm(self.location_weight(loci).view(1, self.hidden_size), user_vec)
+        else:
+            # (all) negative samples:
+            neg_os = torch.mm(self.location_weight.weight, user_vec)
         
         # loss (original):
         return torch.log(1. + torch.exp(torch.neg(pos_o - neg_os)))
